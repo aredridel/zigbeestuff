@@ -1,15 +1,16 @@
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
 use serde::Deserialize;
 use std::time::Duration;
-// use tokio::{task, time};
 use eyre::Result;
+use std::fs;
 
 #[tokio::main]
 pub async fn main() -> Result<()> {
+    let config: Config = toml::from_str(&fs::read_to_string("config.toml")?)?;
     let mut mqttoptions = MqttOptions::new("rumqtt-async", "homeassistant.local", 1883);
     mqttoptions.set_keep_alive(5);
     mqttoptions.set_clean_session(true);
-    mqttoptions.set_credentials("aredridel", "");
+    mqttoptions.set_credentials(config.username, config.password);
     mqttoptions.set_connection_timeout(30);
     mqttoptions.set_max_packet_size(65535, 65535);
 
@@ -18,9 +19,9 @@ pub async fn main() -> Result<()> {
         .subscribe("homeassistant/+/+/+/config", QoS::AtMostOnce)
         .await?;
 
-    client
-        .subscribe("zigbee2mqtt/Aria's Symfonisk Remote/action", QoS::AtMostOnce)
-        .await?;
+    for bind in config.bind {
+        do_bind(&bind, &client).await?;
+    }
 
     /*
     task::spawn(async move {
@@ -33,8 +34,6 @@ pub async fn main() -> Result<()> {
         }
     });
     */
-
-    do_sonos().await?;
 
     loop {
         match eventloop.poll().await {
@@ -56,8 +55,11 @@ pub async fn main() -> Result<()> {
     }
 }
 
-pub async fn do_sonos() -> Result<()> {
-    let speaker = sonor::find("Aria's Bedroom", Duration::from_secs(2))
+async fn do_bind(bind: &BindConfig, client: &AsyncClient) -> Result<()> {
+    client
+        .subscribe(&bind.action_topic, QoS::AtMostOnce)
+        .await?;
+    let speaker = sonor::find(&bind.speaker, Duration::from_secs(2))
         .await?
         .expect("room exists");
 
@@ -99,4 +101,16 @@ struct Device {
 #[derive(Deserialize, Debug)]
 struct TopicObj {
     topic: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct Config {
+    username: String,
+    password: String,
+    bind: Vec<BindConfig>,
+}
+#[derive(Deserialize, Debug)]
+struct BindConfig {
+    action_topic: String,
+    speaker: String,
 }

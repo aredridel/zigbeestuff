@@ -1,0 +1,6 @@
+username = "mqttuser"
+password = "mqttpass"
+
+[[bind]]
+action_topic = "zigbee2mqtt/Symfonisk Remote/action"
+speaker = "Living Room"
