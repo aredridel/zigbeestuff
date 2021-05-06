@@ -1,70 +1,85 @@
+mod speaker_actor;
+
 use eyre::Result;
-use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
+use rumqttc::{AsyncClient, Event, EventLoop, Incoming, MqttOptions, QoS};
 use serde::Deserialize;
-use sonor::Speaker;
 use std::collections::HashMap;
-use std::fs;
-use std::str;
-use std::time::Duration;
+use std::{fs, str};
+use tokio::time::Duration;
+
+use crate::speaker_actor::{SpeakerHandle, SpeakerMessage};
 
 #[tokio::main]
 pub async fn main() -> Result<()> {
-    let config: Config = toml::from_str(&fs::read_to_string("config.toml")?)?;
-    let mut mqttoptions = MqttOptions::new("rumqtt-async", "homeassistant.local", 1883);
-    mqttoptions.set_keep_alive(5);
-    mqttoptions.set_clean_session(false);
-    mqttoptions.set_credentials(config.username.clone(), config.password.clone());
-    mqttoptions.set_connection_timeout(30);
-    mqttoptions.set_max_packet_size(65535, 65535);
-
-    let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
-    /* client
-    .subscribe("homeassistant/+/+/+/config", QoS::AtMostOnce)
-    .await?;*/
-
-    let mut app: App = App {
-        bindings: HashMap::new(),
-        client: client,
-    };
-
-    app.connect_bindings(config).await?;
-
-    /*
-    task::spawn(async move {
-        for i in 0..10 {
-            client
-                .publish("hello/rumqtt", QoS::AtLeastOnce, false, vec![i; i as usize])
-                .await
-                .unwrap();
-            time::sleep(Duration::from_millis(100)).await;
-        }
-    });
-    */
-
-    loop {
-        match eventloop.poll().await {
-            Ok(notification) => {
-                println!("Received = {:?}", notification);
-                if let Event::Incoming(Incoming::Publish(packet)) = notification {
-                    println!("topic = {:?}", packet.topic);
-                    app.handle_payload(&packet.topic, str::from_utf8(&packet.payload).unwrap())
-                        .await?;
-                }
-            }
-            Err(e) => {
-                println!("{:?}", e);
-            }
-        };
-    }
+    let mut app: App = App::new().await?;
+    app.run().await?;
+    Ok(())
 }
 
-#[derive(Debug)]
 struct App {
     bindings: HashMap<String, Vec<Binding>>,
     client: AsyncClient,
+    eventloop: EventLoop,
 }
 
 impl App {
+    async fn new() -> Result<App> {
+        let config: Config = toml::from_str(&fs::read_to_string("config.toml")?)?;
+        let mut mqttoptions =
+            MqttOptions::new("rumqtt-async", &config.mqtt.hostname, config.mqtt.port);
+        mqttoptions.set_keep_alive(5);
+        mqttoptions.set_clean_session(false);
+        mqttoptions.set_credentials(&config.mqtt.username, &config.mqtt.password);
+        mqttoptions.set_connection_timeout(30);
+        mqttoptions.set_max_packet_size(65535, 65535);
+
+        let (client, eventloop) = AsyncClient::new(mqttoptions, 10);
+        /* client
+        .subscribe("homeassistant/+/+/+/config", QoS::AtMostOnce)
+        .await?;*/
+
+        let mut app = App {
+            bindings: HashMap::new(),
+            client: client,
+            eventloop: eventloop,
+        };
+        app.connect_bindings(config).await?;
+        return Ok(app);
+    }
+
+    async fn run(&mut self) -> Result<()> {
+        /*
+        task::spawn(async move {
+            for i in 0..10 {
+                client
+                    .publish("hello/rumqtt", QoS::AtLeastOnce, false, vec![i; i as usize])
+                    .await
+                    .unwrap();
+                time::sleep(Duration::from_millis(100)).await;
+            }
+        });
+        */
+
+        loop {
+            match self.eventloop.poll().await {
+                Ok(notification) => {
+                    println!("Received = {:?}", notification);
+                    if let Event::Incoming(Incoming::Publish(packet)) = notification {
+                        println!("topic = {:?}", packet.topic);
+                        self.handle_payload(
+                            &packet.topic,
+                            str::from_utf8(&packet.payload).unwrap(),
+                        )
+                        .await?;
+                    }
+                }
+                Err(e) => {
+                    println!("{:?}", e);
+                }
+            };
+        }
+    }
+
     async fn connect_bindings(&mut self, config: Config) -> Result<()> {
         for bind in config.bind {
             self.do_bind(bind).await?;
@@ -77,10 +92,13 @@ impl App {
         if let Some(bindings) = self.bindings.get(topic) {
             for binding in bindings {
                 if payload == "brightness_move_up" {
-                    binding.speaker.set_volume_relative(1).await?;
+                    binding.speaker.send(SpeakerMessage::VolumeUp).await;
                 } else if payload == "brightness_move_down" {
-                    binding.speaker.set_volume_relative(-1).await?;
+                    binding.speaker.send(SpeakerMessage::VolumeDown).await;
                 } else if payload == "brightness_stop" {
+                    binding.speaker.send(SpeakerMessage::VolumeStop).await;
+                } else if payload == "toggle" {
+                    binding.speaker.send(SpeakerMessage::PlayPause).await;
                 }
             }
         }
@@ -106,7 +124,7 @@ impl App {
         }
 
         let binding = Binding {
-            speaker: speaker,
+            speaker: SpeakerHandle::new(speaker),
             action_topic: bind.action_topic.clone(),
         };
         if let Some(vec) = self.bindings.get_mut(&bind.action_topic) {
@@ -152,18 +170,25 @@ struct TopicObj {
 
 #[derive(Deserialize, Debug)]
 struct Config {
-    username: String,
-    password: String,
+    mqtt: MqttConfig,
     bind: Vec<BindConfig>,
 }
+
+#[derive(Deserialize, Debug)]
+struct MqttConfig {
+    username: String,
+    password: String,
+    hostname: String,
+    port: u16,
+}
+
 #[derive(Deserialize, Debug)]
 struct BindConfig {
     action_topic: String,
     speaker: String,
 }
 
-#[derive(Debug)]
 struct Binding {
     action_topic: String,
-    speaker: Speaker,
+    speaker: SpeakerHandle,
 }
