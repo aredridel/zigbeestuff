@@ -1,4 +1,5 @@
 mod speaker_actor;
+mod ticker_actor;
 
 use eyre::Result;
 use rumqttc::{AsyncClient, Event, EventLoop, Incoming, MqttOptions, QoS};

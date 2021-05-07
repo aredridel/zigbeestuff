@@ -1,23 +1,22 @@
 use eyre::Result;
 use sonor::Speaker;
-use std::thread;
 use tokio::sync::mpsc;
-use tokio::time::Duration;
+use crate::ticker_actor::{TickerHandle, TickMessage};
 
 pub struct SpeakerActor {
     receiver: mpsc::UnboundedReceiver<SpeakerMessage>,
-    sender: mpsc::UnboundedSender<SpeakerMessage>,
     speaker: Speaker,
-    remaining_steps: i32,
+    ticker: TickerHandle,
     direction: i16,
 }
 
+#[derive(Debug)]
 pub enum SpeakerMessage {
     VolumeUp,
     VolumeDown,
     VolumeStop,
-    Play,
-    Pause,
+ /*   Play,
+    Pause,*/
     PlayPause,
     Tick,
 }
@@ -25,33 +24,25 @@ pub enum SpeakerMessage {
 impl SpeakerActor {
     fn new(
         receiver: mpsc::UnboundedReceiver<SpeakerMessage>,
-        sender: mpsc::UnboundedSender<SpeakerMessage>,
+        handle: SpeakerHandle,
         speaker: Speaker,
     ) -> Self {
         SpeakerActor {
             receiver,
-            sender,
             speaker,
-            remaining_steps: 0,
+            ticker: TickerHandle::new(handle),
             direction: 1,
         }
     }
 
     async fn move_volume(&mut self, direction: i16) -> Result<()> {
-        let running = self.remaining_steps > 0;
-        self.remaining_steps = 5;
         self.direction = direction;
-        if !running {
-            std::thread::spawn(|| {
-                while self.remaining_steps > 0 {
-                    self.remaining_steps = self.remaining_steps - 1;
-                    thread::sleep(Duration::from_millis(250));
-                    //interval.tick().await;
-                    //self.speaker.set_volume_relative(self.direction).await?;
-                    println!("Volume +{:?}", self.direction);
-                }
-            });
-        }
+        self.ticker.send(TickMessage::Tick(5)).await;
+        Ok(())
+    }
+
+    async fn volume_stop(&mut self) -> Result<()> {
+        self.ticker.send(TickMessage::Stop).await;
         Ok(())
     }
 
@@ -66,24 +57,24 @@ impl SpeakerActor {
                 Ok(())
             }
             SpeakerMessage::VolumeStop => {
-                self.remaining_steps = 0;
+                self.volume_stop().await?;
                 Ok(())
             }
-            SpeakerMessage::Play => Ok(()),
-            SpeakerMessage::Pause => Ok(()),
+    /*        SpeakerMessage::Play => Ok(()),
+            SpeakerMessage::Pause => Ok(()),*/
             SpeakerMessage::PlayPause => Ok(()),
-            SpeakerMessage::Tick => Ok(()),
+            SpeakerMessage::Tick => {
+                self.speaker.set_volume_relative(self.direction).await?;
+                Ok(())
+            }
         }
     }
 
     async fn run(&mut self) {
         while let Some(msg) = self.receiver.recv().await {
-            let task = self.handle_message(msg);
-            /*
-                        tokio::spawn(async move {
-            println!("{:?}", err);
-                        })
-                        */
+            self.handle_message(msg).await.unwrap_or_else(|err| {
+                println!("{:?}", err);
+            });
         }
     }
 }
@@ -96,18 +87,18 @@ pub struct SpeakerHandle {
 impl SpeakerHandle {
     pub fn new(speaker: Speaker) -> Self {
         let (sender, receiver) = mpsc::unbounded_channel();
-        let self_sender = sender.clone();
+        let handle = Self { sender };
+        let tick_handle = handle.clone();
+
         tokio::spawn(async move {
-            let mut actor = SpeakerActor::new(receiver, self_sender, speaker);
+            let mut actor = SpeakerActor::new(receiver, tick_handle, speaker);
             actor.run().await;
         });
 
-        Self { sender }
+        handle
     }
 
     pub async fn send(&self, msg: SpeakerMessage) {
-        println!("before");
-        let _ = self.sender.send(msg);
-        println!("after");
+        self.sender.send(msg).unwrap();
     }
 }
