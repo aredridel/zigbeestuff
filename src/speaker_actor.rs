@@ -1,7 +1,7 @@
+use crate::ticker_actor::{TickMessage, TickerHandle};
 use eyre::Result;
 use sonor::Speaker;
 use tokio::sync::mpsc;
-use crate::ticker_actor::{TickerHandle, TickMessage};
 
 pub struct SpeakerActor {
     receiver: mpsc::UnboundedReceiver<SpeakerMessage>,
@@ -15,8 +15,10 @@ pub enum SpeakerMessage {
     VolumeUp,
     VolumeDown,
     VolumeStop,
- /*   Play,
+    /*   Play,
     Pause,*/
+    Next,
+    Previous,
     PlayPause,
     Tick,
 }
@@ -50,24 +52,33 @@ impl SpeakerActor {
         match msg {
             SpeakerMessage::VolumeUp => {
                 self.move_volume(1).await?;
-                Ok(())
             }
             SpeakerMessage::VolumeDown => {
                 self.move_volume(-1).await?;
-                Ok(())
             }
             SpeakerMessage::VolumeStop => {
                 self.volume_stop().await?;
-                Ok(())
             }
-    /*        SpeakerMessage::Play => Ok(()),
+            /*        SpeakerMessage::Play => Ok(()),
             SpeakerMessage::Pause => Ok(()),*/
-            SpeakerMessage::PlayPause => Ok(()),
+            SpeakerMessage::PlayPause => {
+                if self.speaker.is_playing().await? {
+                    self.speaker.pause().await?;
+                } else {
+                    self.speaker.play().await?;
+                }
+            }
+            SpeakerMessage::Next => {
+                self.speaker.next().await?;
+            }
+            SpeakerMessage::Previous => {
+                self.speaker.previous().await?;
+            }
             SpeakerMessage::Tick => {
                 self.speaker.set_volume_relative(self.direction).await?;
-                Ok(())
             }
         }
+        Ok(())
     }
 
     async fn run(&mut self) {

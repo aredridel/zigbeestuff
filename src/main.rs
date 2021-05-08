@@ -49,18 +49,6 @@ impl App {
     }
 
     async fn run(&mut self) -> Result<()> {
-        /*
-        task::spawn(async move {
-            for i in 0..10 {
-                client
-                    .publish("hello/rumqtt", QoS::AtLeastOnce, false, vec![i; i as usize])
-                    .await
-                    .unwrap();
-                time::sleep(Duration::from_millis(100)).await;
-            }
-        });
-        */
-
         loop {
             match self.eventloop.poll().await {
                 Ok(notification) => {
@@ -100,6 +88,11 @@ impl App {
                     binding.speaker.send(SpeakerMessage::VolumeStop).await;
                 } else if payload == "toggle" {
                     binding.speaker.send(SpeakerMessage::PlayPause).await;
+                } else if payload == "brightness_step_up" {
+                    binding.speaker.send(SpeakerMessage::Next).await;
+                } else if payload == "brightness_step_down" {
+                    binding.speaker.send(SpeakerMessage::Previous).await;
+
                 }
             }
         }
@@ -146,12 +139,6 @@ struct HAConfig {
     device: Device,
     json_attributes_topic: String,
     name: String,
-    /*
-    position_template: String,
-    position_topic: String,
-    set_position_template: String,
-    set_position_topic: String,
-    */
     unique_id: String,
 }
 
