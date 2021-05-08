@@ -10,13 +10,14 @@ pub struct SpeakerActor {
     direction: i16,
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum SpeakerMessage {
     VolumeUp,
     VolumeDown,
     VolumeStop,
-    /*   Play,
-    Pause,*/
+    Play,
+    Pause,
     Next,
     Previous,
     PlayPause,
@@ -59,8 +60,12 @@ impl SpeakerActor {
             SpeakerMessage::VolumeStop => {
                 self.volume_stop().await?;
             }
-            /*        SpeakerMessage::Play => Ok(()),
-            SpeakerMessage::Pause => Ok(()),*/
+            SpeakerMessage::Play => {
+                self.speaker.play().await?;
+            }
+            SpeakerMessage::Pause => {
+                self.speaker.pause().await?;
+            }
             SpeakerMessage::PlayPause => {
                 if self.speaker.is_playing().await? {
                     self.speaker.pause().await?;

@@ -52,9 +52,7 @@ impl App {
         loop {
             match self.eventloop.poll().await {
                 Ok(notification) => {
-                    println!("Received = {:?}", notification);
                     if let Event::Incoming(Incoming::Publish(packet)) = notification {
-                        println!("topic = {:?}", packet.topic);
                         self.handle_payload(
                             &packet.topic,
                             str::from_utf8(&packet.payload).unwrap(),
@@ -77,7 +75,6 @@ impl App {
     }
 
     async fn handle_payload(&mut self, topic: &str, payload: &str) -> Result<()> {
-        println!("payload = {:?}, topic = {}", payload, topic);
         if let Some(bindings) = self.bindings.get(topic) {
             for binding in bindings {
                 if payload == "brightness_move_up" {
@@ -92,7 +89,6 @@ impl App {
                     binding.speaker.send(SpeakerMessage::Next).await;
                 } else if payload == "brightness_step_down" {
                     binding.speaker.send(SpeakerMessage::Previous).await;
-
                 }
             }
         }
@@ -100,8 +96,6 @@ impl App {
     }
 
     async fn do_bind(&mut self, bind: BindConfig) -> Result<()> {
-        println!("topic = {}", bind.action_topic);
-
         self.client
             .subscribe(&bind.action_topic, QoS::AtMostOnce)
             .await?;
@@ -109,13 +103,6 @@ impl App {
         let speaker = sonor::find(&bind.speaker, Duration::from_secs(2))
             .await?
             .expect("room exists");
-
-        println!("The volume is currently at {}", speaker.volume().await?);
-
-        match speaker.track().await? {
-            Some(track_info) => println!("Currently playing '{}", track_info.track()),
-            None => println!("No track currently playing"),
-        }
 
         let binding = Binding {
             speaker: SpeakerHandle::new(speaker),
