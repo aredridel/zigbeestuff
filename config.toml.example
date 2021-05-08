@@ -1,3 +1,6 @@
+[mqtt]
+hostname = "mqtt.local"
+port = 1883
 username = "mqttuser"
 password = "mqttpass"
 
