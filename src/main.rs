@@ -107,7 +107,7 @@ impl App {
 
         let speaker = sonor::find(&bind.speaker, Duration::from_secs(2))
             .await?
-            .expect("room exists");
+            .expect("speaker not found");
 
         let binding = Binding {
             speaker: SpeakerHandle::new(speaker),
