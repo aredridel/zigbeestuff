@@ -25,7 +25,12 @@ struct App {
 
 impl App {
     async fn new() -> Result<App> {
-        let config: Config = toml::from_str(&fs::read_to_string("config.toml")?)?;
+        let config = if let Some(file) = std::env::args().nth(1) {
+            file
+        } else {
+            "config.toml".to_string()
+        };
+        let config: Config = toml::from_str(&fs::read_to_string(&config)?)?;
         let mut mqttoptions =
             MqttOptions::new("rumqtt-async", &config.mqtt.hostname, config.mqtt.port);
         mqttoptions.set_keep_alive(5);
